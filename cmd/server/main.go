@@ -1,11 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"github.com/lus/kratos-readonly-traits/internal/config"
+	"github.com/lus/kratos-readonly-traits/internal/webhook"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"net/http"
 	"os"
 	"os/signal"
+	"time"
 )
 
 func main() {
@@ -28,6 +33,26 @@ func main() {
 		}
 		zerolog.SetGlobalLevel(logLevel)
 	}
+
+	// Start the webhook server
+	wh := &webhook.Server{
+		Address:      cfg.ListenAddress,
+		ErrorMessage: cfg.ErrorMessage,
+	}
+	log.Info().Str("address", cfg.ListenAddress).Msg("Starting the HTTP server...")
+	go func() {
+		if err := wh.Start(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal().Err(err).Msg("Could not start the HTTP server.")
+		}
+	}()
+	defer func() {
+		log.Info().Msg("Shutting down the HTTP server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := wh.Stop(ctx); err != nil {
+			log.Err(err).Msg("Could not gracefully shut down the HTTP server.")
+		}
+	}()
 
 	// Wait for a Ctrl-C signal
 	log.Info().Msg("The application has been started. To stop it press Ctrl-C.")
